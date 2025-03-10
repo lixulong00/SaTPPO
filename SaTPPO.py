@@ -240,22 +240,13 @@ def te_st(my_env, agent):
     return episode_reward, episode_info
 
 # Main function for training the agent
-def main(args):
+def main(args, my_env):
     """
     The main function for training the agent.
 
     Parameters:
     - args: Command line arguments and configuration parameters.
     """
-    # Import the environment class and create an environment instance
-    from NS2CO_env import env
-    my_env = env(args=args)
-
-    # Set the dimensions of state and action spaces
-    args.state_dim = my_env.state_dim
-    args.action_S_dim = my_env.action_S_dim
-    args.action_U_dim = my_env.action_U_dim
-    args.action_dim = my_env.action_S_dim + my_env.action_U_dim
     
     # Initialize the experience replay buffer and the PPO agent
     replay_buffer = ReplayBuffer(args)
@@ -328,35 +319,3 @@ def main(args):
             agent.save_model()
             for key in totle_info.keys():
                 np.save(args.full_save_path + "/" + str(key) + "_"+args.alg + ".npy", totle_info[key])
-
-
-if __name__ == '__main__':
-    """
-    Entry point of the script.
-    
-    This block initializes the necessary parameters, sets up the environment for reproducibility, 
-    creates directories for saving results, saves the configuration, and starts the main training process.
-    """
-    # Import the argument parser module and initialize the arguments.
-    from arg_PPO import arg_PPO
-    args = arg_PPO()
-    
-    # Set the algorithm name to "SaTPPO".
-    args.alg = "SaTPPO"
-    
-    # Set the random seed for reproducibility.
-    seed = 1
-    utils.seed_everything(seed)
-    
-    # Create a directory to save experiment results and models.
-    utils.make_savedir(args)
-    
-    # Save the current configuration to the specified path.
-    utils.save_args(args, args.full_save_path)
-    
-    # Initialize a log file to record the training process.
-    with open(args.full_save_path + "/" + "log.txt", 'w') as f:
-        f.write('start' + '\n')
-    
-    # Start the main training function with the initialized arguments.
-    main(args)
