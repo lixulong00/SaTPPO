@@ -19,10 +19,6 @@ Task_cpu_max, Task_cpu_min = Task_cpu_mean[1] + Task_cpu_std[1]*3, Task_cpu_mean
 Task_delay_mean, Task_delay_std = [0.055, 0.055, 0.04125], [0.00005, 0.00005, 0.0000375]
 Task_delay_max, Task_delay_min = Task_delay_mean[0] + Task_delay_std[0]*3, Task_delay_mean[2] - Task_delay_std[2]*3
 
-Task_size_max, Task_size_min = Task_size_mean[0] + Task_size_std[0]*3, Task_size_mean[1] - Task_size_std[1]*3
-Task_cpu_max, Task_cpu_min = Task_cpu_mean[1] + Task_cpu_std[1]*3, Task_cpu_mean[0] - Task_cpu_std[0]*3
-Task_delay_max, Task_delay_min = Task_delay_mean[0] + Task_delay_std[0]*3, Task_delay_mean[2] - Task_delay_std[2]*3
-
 
 
 class env(gym.Env):
