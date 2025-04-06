@@ -1,6 +1,7 @@
 import utils
 from SaTPPO import main
 from NS2CO_env import env
+import numpy as np
 
 if __name__ == '__main__':
     """
@@ -16,16 +17,18 @@ if __name__ == '__main__':
     # Set the algorithm name to "SaTPPO".
     args.alg = "SaTPPO"
     
+    
     # Import the environment class and create an environment instance
     my_env = env(args=args)
     # Set the dimensions of state and action spaces
-    args.state_dim = my_env.state_dim
-    args.action_S_dim = my_env.action_S_dim
-    args.action_U_dim = my_env.action_U_dim
-    args.action_dim = my_env.action_S_dim + my_env.action_U_dim
+    args.action_n = my_env.action_n
+    args.state_n = my_env.state_n
+    args.S_action_n = my_env.S_action_n
+    args.U_action_n = my_env.U_action_n
     
     # Set the random seed for reproducibility.
     seed = 1
+    seed = np.random.randint(1, 10000)
     utils.seed_everything(seed)
     
     # Create a directory to save experiment results and models.
