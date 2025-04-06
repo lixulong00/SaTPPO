@@ -4,11 +4,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
+import torch.nn as nn
 from ppo_network import *
 sys.path.append('..')
 import utils
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 # Define the replay buffer class for storing experience data
 class ReplayBuffer:
@@ -17,11 +17,11 @@ class ReplayBuffer:
     :param args: Contains the parameters required for the replay buffer, such as batch size, state dimension, action dimension, etc.
     """
     def __init__(self, args):
-        self.s = np.zeros((args.batch_size, args.state_dim))
-        self.a = np.zeros((args.batch_size, args.action_dim))
-        self.a_logprob = np.zeros((args.batch_size, args.action_dim))
+        self.s = np.zeros((args.batch_size, args.state_n))
+        self.a = np.zeros((args.batch_size, args.action_n))
+        self.a_logprob = np.zeros((args.batch_size, args.action_n))
         self.r = np.zeros((args.batch_size, 1))
-        self.s_ = np.zeros((args.batch_size, args.state_dim))
+        self.s_ = np.zeros((args.batch_size, args.state_n))
         self.dw = np.zeros((args.batch_size, 1))
         self.done = np.zeros((args.batch_size, 1))
         self.count = 0
@@ -61,8 +61,13 @@ class ReplayBuffer:
         return s, a, a_logprob, r, s_, dw, done
 
 
+# Trick 8: orthogonal initialization
+def orthogonal_init(layer, gain=1.0):
+    nn.init.orthogonal_(layer.weight, gain=gain)
+    nn.init.constant_(layer.bias, 0)
+
 # Define the SaTPPO class
-class SaTPPO():
+class PPO_continuous():
     """
     Initialize the SaTPPO algorithm
     :param args: Contains the parameters required for the algorithm, such as batch size, learning rate, etc.
@@ -83,38 +88,26 @@ class SaTPPO():
         self.use_grad_clip = args.use_grad_clip
         self.use_lr_decay = args.use_lr_decay
         self.use_adv_norm = args.use_adv_norm
-        self.actor = Actor_Gaussian_TS(args.state_n, [args.S_action_n, args.U_action_n], hidden_size=args.hidden_width)
+        self.actor = Actor_Gaussian_HRL(args)
         self.critic = Critic(args)
 
-        self.optimizer_actor = torch.optim.Adam(self.actor.parameters(), lr=self.lr_a)
-        self.optimizer_critic = torch.optim.Adam(self.critic.parameters(), lr=self.lr_c)
+        if self.set_adam_eps:  # Trick 9: set Adam epsilon=1e-5
+            self.optimizer_actor = torch.optim.Adam(self.actor.parameters(), lr=self.lr_a, eps=1e-5)
+            self.optimizer_critic = torch.optim.Adam(self.critic.parameters(), lr=self.lr_c, eps=1e-5)
+        else:
+            self.optimizer_actor = torch.optim.Adam(self.actor.parameters(), lr=self.lr_a)
+            self.optimizer_critic = torch.optim.Adam(self.critic.parameters(), lr=self.lr_c)
     
-    """
-    Evaluate the policy and return the mean action for a given state
-    :param s: State
-    :return: Mean action
-    """
     def evaluate_S(self, s):  # When evaluating the policy, we only use the mean
-        s = torch.unsqueeze(torch.tensor(s, dtype=torch.float), 0)
+        s = torch.unsqueeze(torch.tensor(s[:self.args.critic_sli], dtype=torch.float), 0)
         a = self.actor.S_actor_net(s).detach()
         return a.numpy()
 
-    """
-    Evaluate the policy and return the mean action for a given state and sub-action
-    :param S_act: Sub-action
-    :param s: State
-    :return: Mean action
-    """
     def evaluate_U(self, S_act, s):  # When evaluating the policy, we only use the mean
         s = torch.unsqueeze(torch.tensor(s, dtype=torch.float), 0)
         a = self.actor.U_actor_net(torch.cat([S_act, s], -1)).detach()
         return a.numpy()
-    
-    """
-    Choose an action based on the current policy for a given state
-    :param s: State
-    :return: Action and its log probability
-    """
+
     def choose_action_S(self, s):
         s = torch.unsqueeze(torch.tensor(s, dtype=torch.float), 0)
         with torch.no_grad():
@@ -124,12 +117,6 @@ class SaTPPO():
             a_logprob = dist.log_prob(a)  # The log probability density of the action
         return a.numpy(), a_logprob.numpy()
 
-    """
-    Choose an action based on the current policy for a given state and sub-action
-    :param S_act: Sub-action
-    :param s: State
-    :return: Action and its log probability
-    """
     def choose_action_U(self, S_act, s):
         s = torch.unsqueeze(torch.tensor(s, dtype=torch.float), 0)
         with torch.no_grad():
@@ -139,18 +126,23 @@ class SaTPPO():
             a_logprob = dist.log_prob(a)  # The log probability density of the action
         return a.numpy(), a_logprob.numpy()
 
-    """
-    Save the model parameters
-    """
+    def lr_decay(self, total_episode):
+        lr_a_now = self.lr_a * (1 - total_episode / self.args.episode_number_max)
+        lr_c_now = self.lr_c * (1 - total_episode / self.args.episode_number_max)
+        for p in self.optimizer_actor.param_groups:
+            p['lr'] = lr_a_now
+        for p in self.optimizer_critic.param_groups:
+            p['lr'] = lr_c_now
+
     def save_model(self):
         net = {'PPO_actor_net':self.actor, 'PPO_critic_net':self.critic}
         utils.save_model(net, self.args.full_save_path + '/model_PPO' , self.args.save_network_type)
-
+    
     """
     Update the actor and critic networks using experience from the replay buffer
     :param replay_buffer: Replay buffer containing the experience data
     """
-    def update(self, replay_buffer):
+    def update(self, replay_buffer, total_episode):
         s, a, a_logprob, r, s_, dw, done = replay_buffer.numpy_to_tensor()  # Get training data
         """
             Calculate the advantage using GAE
@@ -170,6 +162,7 @@ class SaTPPO():
             v_target = adv + vs
             if self.use_adv_norm:  # Trick 1:advantage normalization
                 adv = ((adv - adv.mean()) / (adv.std() + 1e-5))
+
 
         # Optimize network for K epochs:
         for _ in range(self.K_epochs):
@@ -199,9 +192,11 @@ class SaTPPO():
                 if self.use_grad_clip:  # Trick 7: Gradient clip
                     torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
                 self.optimizer_critic.step()
-
+    
+        if self.use_lr_decay:  # Trick 6:learning rate Decay
+            self.lr_decay(total_episode)
 # Test the performance of the agent
-def te_st(my_env, agent):
+def te_st(my_env,agent):
     """
     Test the performance of the agent in the environment.
 
@@ -222,8 +217,8 @@ def te_st(my_env, agent):
         new_S_action = agent.evaluate_S(s)
         if S_action is None:
             S_action = new_S_action
-        tmp_new_state, cost = my_env.new_state_cost(new_S_action)
-        if agent.critic(tmp_new_state, numpy_type=True).detach().numpy()[0] + cost \
+        tmp_new_state, cost = my_env.tmp_new_state(new_S_action[0])
+        if agent.critic(tmp_new_state, numpy_type=True).detach().numpy()[0] + cost\
                 > agent.critic(s, numpy_type=True).detach().numpy()[0]:
             S_action = new_S_action
         U_action = agent.evaluate_U(torch.tensor(S_action, dtype=torch.float), s)
@@ -239,7 +234,7 @@ def te_st(my_env, agent):
             episode_info[key].append(info[key])
     return episode_reward, episode_info
 
-# Main function for training the agent
+ 
 def main(args, my_env):
     """
     The main function for training the agent.
@@ -250,8 +245,8 @@ def main(args, my_env):
     
     # Initialize the experience replay buffer and the PPO agent
     replay_buffer = ReplayBuffer(args)
-    agent = SaTPPO(args)
-
+    agent = PPO_continuous(args)
+    
     # Initialize a dictionary to store training information
     totle_info = {
         "reward": [],
@@ -271,15 +266,15 @@ def main(args, my_env):
                 S_action = new_S_action
                 S_a_logprob = new_S_a_logprob
             # Build new system state based on long-timescale actions and calculate the reconfiguration cost 
-            tmp_new_state, cost = my_env.new_state_cost(new_S_action)
+            tmp_new_state, cost = my_env.tmp_new_state(new_S_action[0])
 
             # Decide whether to adopt the new long-timescale action based on the critic's evaluation
-            if agent.critic(tmp_new_state, numpy_type=True).detach().numpy()[0] - \
-                agent.critic(s, numpy_type=True).detach().numpy()[0] > cost:
+            if agent.critic(tmp_new_state, numpy_type=True).detach().numpy()[0] + cost\
+                > agent.critic(s, numpy_type=True).detach().numpy()[0]:
                 S_action = new_S_action
                 S_a_logprob = new_S_a_logprob
-            
-            # Obtain short-timescale actions 
+
+            # Obtain short-timescale actions
             U_action, U_a_logprob = agent.choose_action_U(torch.tensor(S_action, dtype=torch.float), s)
             
             # Obtain joint action 
@@ -293,13 +288,16 @@ def main(args, my_env):
                 dw = True
             else:
                 dw = False
+            
             # Store the experience
             replay_buffer.store(s, act, a_logprob, r, s_, dw, done)
             s = s_
+
             # Update the agent when the replay buffer is full
             if replay_buffer.count == args.batch_size:
-                agent.update(replay_buffer)
+                agent.update(replay_buffer, exp)
                 replay_buffer.count = 0
+        
         # Test and save training information at fixed intervals
         if exp % args.test_per_episode == 0:
             episode_reward, episode_info = te_st(my_env, agent)
@@ -308,12 +306,12 @@ def main(args, my_env):
                 if key not in totle_info.keys():
                     totle_info[key] = []
                 totle_info[key].append(episode_info[key])
-  
             tmp_str = f'alg:{args.alg}, episode:{exp}, episode_reward:{episode_reward}'
             print(tmp_str)
             with open(args.full_save_path + "/" + "log.txt", '+a') as f:
                 f.write(tmp_str)
                 f.write("\n")
+        
         # Save the model and training information at fixed intervals
         if exp % args.save_per_episode == 0:
             agent.save_model()
