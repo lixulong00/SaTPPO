@@ -1,7 +1,7 @@
 import argparse
 def arg_PPO():
     parser = argparse.ArgumentParser("Hyperparameters Setting for PPO-continuous")
-    parser.add_argument("--max_train_steps", type=int, default=int(200 * 10000),
+    parser.add_argument("--max_train_steps", type=int, default=int(200 * 3000),
                         help=" Maximum number of training steps")
     parser.add_argument("--batch_size", type=int, default=1024, help="Batch size")
     parser.add_argument("--mini_batch_size", type=int, default=256, help="Minibatch size")
@@ -18,7 +18,7 @@ def arg_PPO():
     parser.add_argument("--use_reward_norm", type=bool, default=False, help="Trick main:reward normalization")
     parser.add_argument("--use_reward_scaling", type=bool, default=False, help="Trick 4:reward scaling")
     parser.add_argument("--entropy_coef", type=float, default=0.01, help="Trick 5: policy entropy")
-    parser.add_argument("--use_lr_decay", type=bool, default=False, help="Trick 6:learning rate Decay")
+    parser.add_argument("--use_lr_decay", type=bool, default=True, help="Trick 6:learning rate Decay")
     parser.add_argument("--use_grad_clip", type=bool, default=True, help="Trick 7: Gradient clip")
     parser.add_argument("--use_orthogonal_init", type=bool, default=False, help="Trick 8: orthogonal initialization")
     parser.add_argument("--set_adam_eps", type=float, default=True, help="Trick 9: set Adam epsilon=1e-5")
@@ -31,25 +31,25 @@ def arg_PPO():
     parser.add_argument('--CPU_F_U', default=12, type=float, help='CPU frequency of UAVs (G Hz)')
     parser.add_argument('--Task_type_n', default=3, type=int, help='number of Task types')
     parser.add_argument('--E_UAV_max', default=100000, type=float, help='max energy of UAVs (J)')
-    parser.add_argument('--IoT_tra_power_max', default=1, type=float, help='IoT_tra_power_max')
+    parser.add_argument('--E_IoT_max', default=200, type=float, help='max energy of IoT devices (J)')
     parser.add_argument('--x_min', default=-500, type=float, help='min x of UAVs')
     parser.add_argument('--x_max', default=500, type=float, help='max x of UAVs')
     parser.add_argument('--y_min', default=-500, type=float, help='min y of UAVs')
     parser.add_argument('--y_max', default=500, type=float, help='max y of UAVs')
-    parser.add_argument('--z_min', default=20., type=float, help='min z of UAVs')
-    parser.add_argument('--z_max', default=100., type=float, help='max z of UAVs')
+    parser.add_argument('--z_min', default=50., type=float, help='min z of UAVs')
+    parser.add_argument('--z_max', default=150., type=float, help='max z of UAVs')
+    parser.add_argument('--g0', default=1., type=float, help='g0')
     parser.add_argument('--v_uav_x_max', default=20, type=float, help='max x velocity of UAVs')
     parser.add_argument('--v_uav_y_max', default=20, type=float, help='max y velocity of UAVs')
     parser.add_argument('--v_uav_z_max', default=5, type=float, help='max z velocity of UAVs')
     parser.add_argument('--T_max', default=200, type=float, help='step number of each episode')
 
     # 算法相关
-    parser.add_argument('--episode_number_max', default=10000, type=float, help='max number of episode')
+    parser.add_argument('--episode_number_max', default=15000, type=float, help='max number of episode')
     parser.add_argument('--save_path', default='./train_result', type=str, help='path to save the result')
     parser.add_argument('--save_network_type', default='model', type=str, help='type of network to save')
     parser.add_argument('--save_per_episode', default=20, type=int, help='type of network to save')
     parser.add_argument('--test_per_episode', default=1, type=int, help='test per episode')
-    parser.add_argument('--critic_sli', default=10, type=int, help='critic_sli_dim')
 
     args = parser.parse_args()
     return args
