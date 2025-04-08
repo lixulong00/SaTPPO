@@ -1,15 +1,20 @@
-import random
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.distributions import Normal
 import numpy as np
-np.random.seed(1)
-torch.manual_seed(1)
 
 class Actor_Gaussian(nn.Module):
+    """
+    Gaussian Actor network for continuous action spaces.
+    
+    Args:
+        state_dim (int): Dimension of the state space.
+        action_dim (int): Dimension of the action space.
+        hidden_width (int): Width of the hidden layers.
+    """
     def __init__(self, state_dim, action_dim, hidden_width):
         super(Actor_Gaussian, self).__init__()
+        # Define the network structure for the actor
         self.actor_net = nn.Sequential(
             nn.Linear(state_dim, hidden_width),
             nn.ReLU(),
@@ -18,82 +23,152 @@ class Actor_Gaussian(nn.Module):
             nn.Linear(hidden_width, action_dim),
             nn.Tanh()
         )
+        # Define log_std as a learnable parameter to ensure std > 0
         self.log_std = nn.Parameter(
-            torch.zeros(1, action_dim))  # We use 'nn.Paremeter' to train log_std automatically
+            torch.zeros(1, action_dim))  
 
-    def forward(self, s):
-        mean = self.actor_net(s)
+    def forward(self, state):
+        """
+        Forward pass to compute the mean of the action distribution.
+        
+        Args:
+            state (Tensor): Current state tensor.
+        
+        Returns:
+            mean (Tensor): Mean of the action distribution.
+        """
+        mean = self.actor_net(state)
         return mean
 
-    def get_dist(self, s):
-        mean = self.forward(s)
-        log_std = self.log_std.expand_as(mean)  # To make 'log_std' have the same dimension as 'mean'
-        std = torch.exp(log_std)  # The reason we train the 'log_std' is to ensure std=exp(log_std)>0
-        dist = Normal(mean, std)  # Get the Gaussian distribution
+    def get_dist(self, state):
+        """
+        Get the Gaussian distribution for the given state.
+        
+        Args:
+            state (Tensor): Current state tensor.
+        
+        Returns:
+            dist (Distribution): Gaussian distribution of actions.
+        """
+        mean = self.forward(state)
+        log_std = self.log_std.expand_as(mean)  
+        std = torch.exp(log_std)  
+        dist = Normal(mean, std)  
         return dist
 
 
-class Actor_Gaussian_HRL(nn.Module):  # Q网络
+
+class Actor_Gaussian_TS(nn.Module):  
+    """
+    Gaussian Actor network with two stages for complex action spaces.
+    
+    Args:
+        args (namespace): Contains state_dim, action_S_dim, action_U_dim, and hidden_width.
+    """
     def __init__(self, args):
-        super(Actor_Gaussian_HRL, self).__init__()
-        self.args = args
-        self.S_actor_net = Actor_Gaussian(self.args.critic_sli, args.S_action_n, args.hidden_width)
-        self.U_actor_net = Actor_Gaussian(args.S_action_n + args.state_n, args.U_action_n, args.hidden_width)
+        super(Actor_Gaussian_TS, self).__init__()
+        # Define two separate actor networks for different action components
+        self.S_actor_net = Actor_Gaussian(args.state_dim, args.action_S_dim, args.hidden_width)
+        self.U_actor_net = Actor_Gaussian(args.state_dim + args.action_S_dim, args.action_U_dim, args.hidden_width)
 
     def forward(self, state):
-        S_act = self.S_actor_net(state[:,:self.args.critic_sli])
+        """
+        Forward pass to compute the concatenated action.
+        
+        Args:
+            state (Tensor): Current state tensor.
+        
+        Returns:
+            Tensor: Concatenated action tensor.
+        """
+        S_act = self.S_actor_net(state)
         U_act = self.U_actor_net(torch.cat([S_act, state], -1))
         return torch.cat([S_act, U_act], -1)
     
-    def get_dist(self, s):
-        S_mean = self.S_actor_net(s[:,:self.args.critic_sli])
-        S_log_std = self.S_actor_net.log_std.expand_as(S_mean)  # To make 'log_std' have the same dimension as 'mean'
-        S_std = torch.exp(S_log_std)  # The reason we train the 'log_std' is to ensure std=exp(log_std)>0
+    def get_dist(self, state):
+        """
+        Get the joint Gaussian distribution for the two-stage action.
         
-        U_mean = self.U_actor_net(torch.cat([S_mean, s], -1))
-        U_log_std = self.U_actor_net.log_std.expand_as(U_mean)  # To make 'log_std' have the same dimension as 'mean'
-        U_std = torch.exp(U_log_std)  # The reason we train the 'log_std' is to ensure std=exp(log_std)>0
+        Args:
+            state (Tensor): Current state tensor.
         
-        dist = Normal(torch.cat([S_mean, U_mean], -1), torch.cat([S_std, U_std], -1))  # Get the Gaussian distribution
+        Returns:
+            dist (Distribution): Joint Gaussian distribution of actions.
+        """
+        S_mean = self.S_actor_net(state)
+        S_log_std = self.S_actor_net.log_std.expand_as(S_mean)  
+        S_std = torch.exp(S_log_std)  
+        
+        U_mean = self.U_actor_net(torch.cat([S_mean, state], -1))
+        U_log_std = self.U_actor_net.log_std.expand_as(U_mean)  
+        U_std = torch.exp(U_log_std)  
+        
+        dist = Normal(torch.cat([S_mean, U_mean], -1), torch.cat([S_std, U_std], -1))  
         return dist
     
-    def get_dist_S(self, s):
-        return self.S_actor_net.get_dist(s[:,:self.args.critic_sli])
+    def get_dist_S(self, state):
+        """
+        Get the Gaussian distribution for the first stage action.
+        
+        Args:
+            state (Tensor): Current state tensor.
+        
+        Returns:
+            Distribution: Gaussian distribution of the first stage action.
+        """
+        return self.S_actor_net.get_dist(state)
     
-    def get_dist_U(self, S_act, s):
-        return self.U_actor_net.get_dist(torch.cat([S_act, s], -1))
+    def get_dist_U(self, S_act, state):
+        """
+        Get the Gaussian distribution for the second stage action.
+        
+        Args:
+            S_act (Tensor): Action from the first stage.
+            state (Tensor): Current state tensor.
+        
+        Returns:
+            Distribution: Gaussian distribution of the second stage action.
+        """
+        return self.U_actor_net.get_dist(torch.cat([S_act, state], -1))
+
+
 
 class Critic(nn.Module):
+    """
+    Critic network to evaluate the value of a state-action pair.
+    
+    Args:
+        args (namespace): Contains state_dim, action_dim, and hidden_width.
+    """
     def __init__(self, args):
         super(Critic, self).__init__()
         self.args = args
-        self.fc11 = nn.Linear(args.critic_sli, int(args.hidden_width / 2))
-        self.fc12 = nn.Linear(int(args.hidden_width / 2), int(args.hidden_width / 2))
-        self.fc13 = nn.Linear(int(args.hidden_width / 2), int(args.hidden_width / 2))
 
-        self.fc21 = nn.Linear(args.state_n-args.critic_sli, int(args.hidden_width / 2))
-        self.fc22 = nn.Linear(int(args.hidden_width / 2), int(args.hidden_width / 2))
-        self.fc23 = nn.Linear( int(args.hidden_width / 2),  int(args.hidden_width / 2))
+        # Define the network structure for the critic
+        self.critic_net = nn.Sequential(
+            nn.Linear(args.state_dim, args.hidden_width),
+            nn.ReLU(),
+            nn.Linear(args.hidden_width, args.hidden_width),
+            nn.ReLU(),
+            nn.Linear(args.hidden_width, args.hidden_width),
+            nn.ReLU(),
+            nn.Linear(args.hidden_width, 1),
+        )
 
-        self.fc4 = nn.Linear(args.hidden_width, 1)
-        self.activate_func = [nn.ReLU(), nn.Tanh()][args.use_tanh]  # Trick10: use tanh
-
-
-    def forward(self, s, numpy_type = False):
+    def forward(self, state, numpy_type = False):
+        """
+        Forward pass to compute the value of the given state(s).
+        
+        Args:
+            state (Tensor or ndarray): Current state tensor or numpy array.
+            numpy_type (bool): Flag indicating if the input is a numpy array.
+        
+        Returns:
+            v_s (Tensor): Value of the state(s).
+        """
         if numpy_type:
-            s = torch.from_numpy(s).float()
-        if len(s.shape) == 1:
-            s = s.unsqueeze(0)
-        s1 = s[:, :self.args.critic_sli]
-        s1 = self.activate_func(self.fc11(s1))
-        s1 = self.activate_func(self.fc12(s1))
-        s1 = self.activate_func(self.fc13(s1))
-
-        s2 = s[:, self.args.critic_sli:]
-        s2 = self.activate_func(self.fc21(s2))
-        s2 = self.activate_func(self.fc22(s2))
-        s2 = self.activate_func(self.fc23(s2))
-
-        v_s = self.fc4(torch.cat([s1, s2], -1))
+            state = torch.from_numpy(state).float()
+        if len(state.shape) == 1:
+            state = state.unsqueeze(0)
+        v_s = self.critic_net(state) * 200
         return v_s
-
