@@ -10,7 +10,7 @@ term2 = P_ind * ((np.sqrt(1 + ((V_m ** 4) / (4 * 4.03 * 4.03))) - ((V_m * V_m) /
 term3 = (1. / 2.) * 0.6 * 1.225 * 0.05 * 0.503 * (V_m ** 3)
 T_n_hover = 0.01
 
-# Load simulation data sets that are randomly generated for code runnability. Please replace the simulation data set with the real data set, or further adjust the relevant parameters for better optimization results.
+# Load simulation data sets that are randomly generated for code runnability. Please replace the simulation data set with the real data set, and further adjust the relevant parameters for better optimization results.
 Task_all = np.load('SimulationDdata1.npy', allow_pickle=True)
 Task_size_max, Task_size_min = Task_all[:, :, :, 0].max(), Task_all[:, :, :, 0].min()
 Task_cpu_max, Task_cpu_min = Task_all[:, :, :, 1].max(), Task_all[:, :, :, 1].min()
