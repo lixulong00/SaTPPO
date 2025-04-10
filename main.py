@@ -25,7 +25,7 @@ if __name__ == '__main__':
     args.action_dim = my_env.action_S_dim + my_env.action_U_dim
     
     # Set the random seed for reproducibility.
-    seed = 1
+    seed = np.random.randint(1, 10000)
     utils.seed_everything(seed)
     
     # Create a directory to save experiment results and models.
